@@ -1,0 +1,25 @@
+# Backup files
+*.sh.bak
+*copy*.sh
+*backup*.sh
+main (copy).sh
+
+# FRP Runtime files
+rstun/
+*.toml
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+.temp/ 
