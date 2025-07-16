@@ -33,21 +33,14 @@ A powerful, user-friendly bash script for managing **Fast Reverse Proxy (FRP)** 
 
 ### Installation
 
-1. **Download the script:**
-   ```bash
-   wget https://github.com/smaghili/FRP-Tunnel/raw/main/main.sh
-   chmod +x main.sh
-   ```
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/smaghili/FRP-Tunnel/main/main.sh)
+```
 
-2. **Run the installer:**
-   ```bash
-   ./main.sh
-   ```
-   
-3. **Use the global command:**
-   ```bash
-   frp
-   ```
+After installation, you can use the global command from anywhere:
+```bash
+frp
+```
 
 ### Basic Usage
 
@@ -167,13 +160,11 @@ If you encounter any issues or have questions, please open an issue on GitHub.
 - **رابط وب**: داشبورد مدیریتی داخلی
 
 ## نصب و راه‌اندازی
+
 ```bash
-wget https://github.com/smaghili/FRP-Tunnel/raw/main/main.sh
-chmod +x main.sh
-./main.sh
+bash <(curl -Ls https://raw.githubusercontent.com/smaghili/FRP-Tunnel/main/main.sh)
 ```
 
-## استفاده
 پس از نصب، می‌توانید با دستور `frp` از هر جای سیستم به منوی مدیریت دسترسی داشته باشید.
 
 ---
