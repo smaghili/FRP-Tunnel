@@ -23,3 +23,5 @@ Thumbs.db
 *.tmp
 *.temp
 .temp/ 
+frp-tunnel-manager-v1.0.0.zip
+frp-tunnel-manager-v1.0.0.sh

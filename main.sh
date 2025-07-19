@@ -11,9 +11,12 @@ WHITE='\033[0;37m'
 RESET='\033[0m' # No Color
 BOLD_GREEN='\033[1;32m' # Bold Green for menu title
 
-# --- Global Paths and Markers ---
-# Use readlink -f to get the canonical path of the script, resolving symlinks and /dev/fd/ issues
-FRP_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+
+if [[ "${BASH_SOURCE[0]}" =~ ^/dev/fd/ ]] || [[ "${BASH_SOURCE[0]}" =~ ^/proc/ ]]; then
+    FRP_SCRIPT_PATH="$(pwd)/main.sh"
+else
+    FRP_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+fi
 SCRIPT_DIR="$(dirname "$FRP_SCRIPT_PATH")"
 SETUP_MARKER_FILE="/var/lib/frp/.setup_complete"
 FRP_COMMAND_PATH="/usr/local/bin/frp"
@@ -1240,7 +1243,7 @@ while true; do
   echo -e "\033[1;33m=========================================================="
   echo -e "\033[0m${WHITE}Fast Reverse Proxy Manager${WHITE}${RESET}"
   draw_green_line
-  echo -e "${GREEN}|${RESET}       ${WHITE}FRP Tunnel Manager${RESET}       ${GREEN}|${RESET}"
+  echo -e "${GREEN}${RESET}       ${WHITE}FRP Tunnel Manager${RESET}       ${GREEN}${RESET}"
   echo -e "${YELLOW}You can also run this script anytime by typing: ${WHITE}frp${RESET}"
   draw_green_line
   # Menu
