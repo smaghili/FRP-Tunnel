@@ -34,15 +34,12 @@ clean_old_proxy_configs() {
 # Function to create high-performance frp server configuration (TOML format)
 create_server_config() {
     local config_file="$1" listen_port="$2" auth_token="$3"
-    local server_name=$(basename "$config_file" .toml | sed 's/frps_//')
     
     cat <<EOF > "$config_file"
 bindAddr = "0.0.0.0"
 bindPort = $listen_port
 kcpBindPort = $listen_port
 quicBindPort = $((listen_port + 2))
-vhostHTTPPort = 80
-vhostHTTPSPort = 443
 maxPortsPerClient = 0
 userConnTimeout = 10
 
@@ -54,7 +51,7 @@ webServer.port = $((listen_port + 1))
 webServer.user = "admin"
 webServer.password = "$auth_token"
 
-log.to = "/var/log/frps_${server_name}.log"
+log.to = "/var/log/frps_${listen_port}.log"
 log.level = "warn"
 log.maxDays = 3
 
@@ -595,15 +592,13 @@ uninstall_frp_action() {
       echo "⚠️ No FRP server services found to remove."
     fi
 
-    # Find and remove all frp-client-* services (clients)
     echo "Searching for FRP client services to remove..."
-    # List all unit files that start with 'frp-client-'
     mapfile -t frp_client_services < <(sudo systemctl list-unit-files --full --no-pager | grep '^frp-client-.*\.service' | awk '{print $1}')
 
     if [ ${#frp_client_services[@]} -gt 0 ]; then
       echo "🛑 Stopping and disabling FRP client services..."
       for service_file in "${frp_client_services[@]}"; do
-        local service_name=$(basename "$service_file") # Get just the service name from the file path
+        local service_name=$(basename "$service_file")
         echo "  - Processing $service_name..."
         sudo systemctl stop "$service_name" > /dev/null 2>&1
         sudo systemctl disable "$service_name" > /dev/null 2>&1
@@ -614,7 +609,7 @@ uninstall_frp_action() {
       echo "⚠️ No FRP client services found to remove."
     fi
 
-    sudo systemctl daemon-reload # Reload daemon after removing services
+    sudo systemctl daemon-reload
 
     # Remove rstun folder if exists
     if [ -d "rstun" ]; then
@@ -625,11 +620,11 @@ uninstall_frp_action() {
       echo "⚠️ 'rstun' folder not found."
     fi
 
-    # Remove all FRP logs
-    echo -e "${CYAN}🧹 Removing all FRP logs...${RESET}"
+    # Remove all FRP logs and configs
+    echo -e "${CYAN}🧹 Removing all FRP logs and configs...${RESET}"
     rm -f /var/log/frps*.log > /dev/null 2>&1
     rm -f /var/log/frpc*.log > /dev/null 2>&1
-    rm -f /root/rstun/frps*.toml > /dev/null 2>&1
+    rm -f "$(pwd)"/rstun/frps*.toml > /dev/null 2>&1
     rm -f /root/rstun/frpc*.toml > /dev/null 2>&1
     
     echo -e "${CYAN}🗑️ Cleaning all FRP systemd journal logs...${RESET}"
@@ -784,48 +779,29 @@ add_frp_server_action() {
   echo -e "  ${WHITE}• Dashboard:${RESET} Web interface (port+1)"
   echo ""
 
-  # Prompt for server name
-  echo -e "👉 ${WHITE}Enter server name (e.g., main-server, backup-server):${RESET} "
-  read -p "" server_name
-  echo ""
-
-  if [[ -z "$server_name" ]]; then
-    echo -e "${RED}❌ Server name cannot be empty!${RESET}"
-  echo ""
-    echo -e "${YELLOW}Press Enter to return to main menu...${RESET}"
-    read -p ""
-    return
-  fi
-
-  local service_name="frp-server-$server_name"
-  local service_file="/etc/systemd/system/${service_name}.service"
-  
-  if [ -f "$service_file" ]; then
-    echo -e "${RED}❌ Server with name '$server_name' already exists!${RESET}"
-      echo ""
-    echo -e "${YELLOW}Press Enter to return to main menu...${RESET}"
-      read -p ""
-    return
-  fi
-    
-    # Validate Listen Port
-    local listen_port
-    while true; do
+  # Validate Listen Port
+  local listen_port
+  while true; do
     echo -e "👉 ${WHITE}Enter server port (1-65535, default 7000):${RESET} "
-      read -p "" listen_port_input
+    read -p "" listen_port_input
     listen_port=${listen_port_input:-7000}
     
-      if validate_port "$listen_port"; then
-      # Check if port is already in use by another server
+    if validate_port "$listen_port"; then
       if netstat -tuln | grep -q ":$listen_port "; then
         print_error "Port $listen_port is already in use. Please choose another port."
         continue
       fi
-        break
-      else
-      print_error "Invalid port number. Please enter a number between 1 and 65535."
+      local service_name="frp-server-$listen_port"
+      local service_file="/etc/systemd/system/${service_name}.service"
+      if [ -f "$service_file" ]; then
+        print_error "Server with port $listen_port already exists! Please choose another port."
+        continue
       fi
-    done
+      break
+    else
+      print_error "Invalid port number. Please enter a number between 1 and 65535."
+    fi
+  done
 
   echo -e "👉 ${WHITE}Enter authentication token:${RESET} "
   read -p "" auth_token
@@ -839,20 +815,20 @@ add_frp_server_action() {
     return
   fi
 
-  local config_file="$(pwd)/rstun/frps_${server_name}.toml"
+  local config_file="$(pwd)/rstun/frps_${listen_port}.toml"
 
   create_server_config "$config_file" "$listen_port" "$auth_token"
 
     # Create systemd service file
     cat <<EOF | sudo tee "$service_file" > /dev/null
 [Unit]
-Description=FRP Server - $server_name
+Description=FRP Server - Port $listen_port
 After=network.target
 Wants=network.target
 
 [Service]
 Type=simple
-ExecStart=$(pwd)/rstun/frps -c $(pwd)/rstun/frps_${server_name}.toml
+ExecStart=$(pwd)/rstun/frps -c $(pwd)/rstun/frps_${listen_port}.toml
 Restart=always
 RestartSec=2
 User=$(whoami)
@@ -868,9 +844,8 @@ EOF
   sudo systemctl enable "$service_name" > /dev/null 2>&1
   sudo systemctl start "$service_name" > /dev/null 2>&1
 
-  print_success "FRP server '$server_name' started successfully!"
+  print_success "FRP server on port '$listen_port' started successfully!"
   echo -e "${GREEN}📊 Server Info:${RESET}"
-  echo -e "  ${WHITE}Server Name: ${YELLOW}$server_name${RESET}"
   echo -e "  ${WHITE}Server Port: ${YELLOW}$listen_port${RESET}"
   echo -e "  ${WHITE}Dashboard: ${YELLOW}http://YOUR_SERVER_IP:$((listen_port + 1))${RESET}"
   echo -e "  ${WHITE}Auth Token: ${YELLOW}$auth_token${RESET}"
@@ -963,24 +938,6 @@ add_frp_client_action() {
   draw_line "$CYAN" "=" 40
   echo ""
 
-  # Prompt for the client name (e.g., asiatech, respina, server2)
-  echo -e "👉 ${WHITE}Enter client name (e.g., asiatech, respina, server2):${RESET} "
-  read -p "" client_name
-  echo ""
-
-  # Construct the service name based on the client name
-  service_name="frp-client-$client_name"
-  service_file="/etc/systemd/system/${service_name}.service"
-
-  # Check if a service with the given name already exists
-  if [ -f "$service_file" ]; then
-    echo -e "${RED}❌ Service with this name already exists.${RESET}"
-    echo ""
-    echo -e "${YELLOW}Press Enter to return to previous menu...${RESET}"
-    read -p ""
-    return # Return to menu
-  fi
-
   echo -e "${CYAN}🌐 Server Connection Details:${RESET}"
   echo -e "  (e.x., server.yourdomain.com:6060)"
   
@@ -989,7 +946,6 @@ add_frp_client_action() {
   while true; do
     echo -e "👉 ${WHITE}Server address and port (e.g., server.yourdomain.com:6060 or 192.168.1.1:6060):${RESET} "
     read -p "" server_addr_input
-    # Split into host and port for validation
     local host_part=$(echo "$server_addr_input" | cut -d':' -f1)
     local port_part=$(echo "$server_addr_input" | cut -d':' -f2)
 
@@ -1000,6 +956,19 @@ add_frp_client_action() {
       print_error "Invalid server address or port format. Please use 'host:port' (e.g., example.com:6060)."
     fi
   done
+
+  local client_name=$(echo "$server_addr" | sed 's/[:.]/-/g')
+  service_name="frp-client-$client_name"
+  service_file="/etc/systemd/system/${service_name}.service"
+
+  if [ -f "$service_file" ]; then
+    echo -e "${RED}❌ Client for server '$server_addr' already exists!${RESET}"
+    echo -e "${YELLOW}Service name: $service_name${RESET}"
+    echo ""
+    echo -e "${YELLOW}Press Enter to return to previous menu...${RESET}"
+    read -p ""
+    return
+  fi
   echo ""
 
   echo -e "${CYAN}📡 Tunnel Mode:${RESET}"
@@ -1128,12 +1097,15 @@ EOF
   sudo systemctl enable "$service_name" > /dev/null 2>&1
   sudo systemctl start "$service_name" > /dev/null 2>&1
 
-  print_success "Client '$client_name' started successfully!"
-  echo -e "  ${WHITE}• ${#ports_array[@]} Ports Configured${RESET}"
-  echo -e "  ${WHITE}• Protocol: $selected_protocol${RESET}"
+  print_success "Client for '$server_addr' started successfully!"
+  echo -e "${GREEN}📊 Client Info:${RESET}"
+  echo -e "  ${WHITE}Server: ${YELLOW}$server_addr${RESET}"
+  echo -e "  ${WHITE}Service Name: ${CYAN}$service_name${RESET}"
+  echo -e "  ${WHITE}Ports: ${YELLOW}${#ports_array[@]} configured${RESET}"
+  echo -e "  ${WHITE}Protocol: ${YELLOW}$selected_protocol${RESET}"
 
   echo ""
-  echo -e "${YELLOW}Do you want to view the logs for $client_name now? (y/N): ${RESET}"
+  echo -e "${YELLOW}Do you want to view the logs for this client now? (y/N): ${RESET}"
   read -p "" view_logs_choice
   echo ""
 
@@ -1350,15 +1322,15 @@ while true; do
                   sudo systemctl disable "$selected_server" > /dev/null 2>&1
                   sudo rm -f "$service_file" > /dev/null 2>&1
                   
-                  server_name=$(echo "$selected_server" | sed 's/frp-server-//')
-                  echo -e "${CYAN}🧹 Removing config and logs for server '$server_name'...${RESET}"
-                  rm -f "$(pwd)/rstun/frps_${server_name}.toml" "/var/log/frps_${server_name}.log"* > /dev/null 2>&1
+                  server_port=$(echo "$selected_server" | sed 's/frp-server-//')
+                  echo -e "${CYAN}🧹 Removing config and logs for server port '$server_port'...${RESET}"
+                  rm -f "$(pwd)/rstun/frps_${server_port}.toml" "/var/log/frps_${server_port}.log"* > /dev/null 2>&1
                   
                   # Complete journal cleanup for this service
                   clear_service_logs_completely "$selected_server"
                   
                   sudo systemctl daemon-reload > /dev/null 2>&1
-                  print_success "Server '$server_name' and its specific logs deleted."
+                  print_success "Server on port '$server_port' and its specific logs deleted."
                   break
                 else
                   echo -e "${RED}⚠️ Invalid selection. Please enter a valid number.${RESET}"
@@ -1415,7 +1387,7 @@ while true; do
                 draw_line "$CYAN" "=" 40
                 echo ""
 
-            echo -e "${CYAN}🔍 Searching for clients ...${RESET}"
+            echo -e "${CYAN}🔍 Searching for all FRP clients (including old naming format)...${RESET}"
                 mapfile -t services < <(systemctl list-units --type=service --all | grep 'frp-client-' | awk '{print $1}' | sed 's/.service$//')
 
                 if [ ${#services[@]} -eq 0 ]; then
@@ -1452,7 +1424,7 @@ while true; do
                 draw_line "$CYAN" "=" 40
                 echo ""
 
-            echo -e "${CYAN}🔍 Searching for clients ...${RESET}"
+            echo -e "${CYAN}🔍 Searching for all FRP clients (including old naming format)...${RESET}"
                 mapfile -t services < <(systemctl list-units --type=service --all | grep 'frp-client-' | awk '{print $1}' | sed 's/.service$//')
 
                 if [ ${#services[@]} -eq 0 ]; then
@@ -1476,15 +1448,31 @@ while true; do
                       sudo systemctl disable "$selected_service" > /dev/null 2>&1
                       sudo rm -f "$service_file" > /dev/null 2>&1
                   
-                  client_name=$(echo "$selected_service" | sed 's/frp-client-//')
-                  echo -e "${CYAN}🧹 Removing config and logs for client '$client_name'...${RESET}"
-                  rm -f "/root/rstun/frpc_${client_name}.toml" "/var/log/frpc_${client_name}.log"* > /dev/null 2>&1
+                  client_identifier=$(echo "$selected_service" | sed 's/frp-client-//')
+                  
+                  # Check if it's new format (contains server-port pattern) or old format (custom name)
+                  if echo "$client_identifier" | grep -q ".*-.*-.*-[0-9]*$"; then
+                    # New format: convert back to readable server address
+                    readable_server=$(echo "$client_identifier" | sed 's/-/:/2' | sed 's/-/./g' | sed 's/:/-/' | sed 's/-/:/')
+                    echo -e "${CYAN}🧹 Removing config and logs for client '$readable_server'...${RESET}"
+                  else
+                    # Old format: show as is
+                    echo -e "${CYAN}🧹 Removing config and logs for client '$client_identifier'...${RESET}"
+                  fi
+                  
+                  rm -f "/root/rstun/frpc_${client_identifier}.toml" "/var/log/frpc_${client_identifier}.log"* > /dev/null 2>&1
                   
                   # Complete journal cleanup for this service
                   clear_service_logs_completely "$selected_service"
                   
                       sudo systemctl daemon-reload > /dev/null 2>&1
-                  print_success "Client '$client_name' and its specific logs deleted."
+                  
+                  # Display appropriate success message
+                  if echo "$client_identifier" | grep -q ".*-.*-.*-[0-9]*$"; then
+                    print_success "Client for '$readable_server' and its specific logs deleted."
+                  else
+                    print_success "Client '$client_identifier' and its specific logs deleted."
+                  fi
                       break # Exit the select loop
                     else
                   echo -e "${RED}⚠️ Invalid selection. Please enter a valid number.${RESET}"
@@ -1503,9 +1491,9 @@ while true; do
             draw_line "$CYAN" "=" 50
                 echo ""
 
-            mapfile -t clients < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep -v 'frp-server-' | awk '{print $1}' | sed 's/.service$//' | sed 's/frp-client-//')
+            mapfile -t client_services < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep -v 'frp-server-' | awk '{print $1}' | sed 's/.service$//')
             
-            if [ ${#clients[@]} -eq 0 ]; then
+            if [ ${#client_services[@]} -eq 0 ]; then
               echo -e "${RED}❌ No clients found.${RESET}"
               echo ""
               echo -e "${YELLOW}Press Enter to return...${RESET}"
@@ -1513,13 +1501,36 @@ while true; do
               continue
             fi
             
+            # Create display names for clients
+            declare -a display_names=()
+            declare -a client_identifiers=()
+            
+            for service in "${client_services[@]}"; do
+              client_id=$(echo "$service" | sed 's/frp-client-//')
+              client_identifiers+=("$client_id")
+              
+              # Check if it's new format or old format
+              if echo "$client_id" | grep -q ".*-.*-.*-[0-9]*$"; then
+                # New format: convert to readable server address
+                readable=$(echo "$client_id" | sed 's/-/:/2' | sed 's/-/./g' | sed 's/:/-/' | sed 's/-/:/')
+                display_names+=("$readable (Server)")
+              else
+                # Old format: show as is
+                display_names+=("$client_id (Custom)")
+              fi
+            done
+            
             echo -e "${CYAN}📋 Select client:${RESET}"
-            clients+=("Back to previous menu")
-            select selected_client in "${clients[@]}"; do
-              if [[ "$selected_client" == "Back to previous menu" ]]; then
-                break 2
-              elif [ -n "$selected_client" ]; then
-                get_client_health "$selected_client"
+            display_names+=("Back to previous menu")
+                          select selected_display in "${display_names[@]}"; do
+                if [[ "$selected_display" == "Back to previous menu" ]]; then
+                  break 2
+                elif [ -n "$selected_display" ]; then
+                  # Get the actual client identifier based on selection
+                  selected_index=$((REPLY - 1))
+                  selected_client="${client_identifiers[$selected_index]}"
+                  
+                  get_client_health "$selected_client"
                   echo ""
                 echo -e "${YELLOW}Press Enter to continue...${RESET}"
                   read -p ""
@@ -1537,9 +1548,9 @@ while true; do
                 draw_line "$CYAN" "=" 50
                 echo ""
                 
-                mapfile -t clients < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep -v 'frp-server-' | awk '{print $1}' | sed 's/.service$//' | sed 's/frp-client-//')
+                mapfile -t client_services < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep -v 'frp-server-' | awk '{print $1}' | sed 's/.service$//')
                 
-                if [ ${#clients[@]} -eq 0 ]; then
+                if [ ${#client_services[@]} -eq 0 ]; then
                   echo -e "${RED}❌ No clients found.${RESET}"
                   echo ""
                   echo -e "${YELLOW}Press Enter to return...${RESET}"
@@ -1547,12 +1558,34 @@ while true; do
                   continue
                 fi
                 
+                # Create display names for clients
+                declare -a display_names=()
+                declare -a client_identifiers=()
+                
+                for service in "${client_services[@]}"; do
+                  client_id=$(echo "$service" | sed 's/frp-client-//')
+                  client_identifiers+=("$client_id")
+                  
+                  # Check if it's new format or old format
+                  if echo "$client_id" | grep -q ".*-.*-.*-[0-9]*$"; then
+                    # New format: convert to readable server address
+                    readable=$(echo "$client_id" | sed 's/-/:/2' | sed 's/-/./g' | sed 's/:/-/' | sed 's/-/:/')
+                    display_names+=("$readable (Server)")
+                  else
+                    # Old format: show as is
+                    display_names+=("$client_id (Custom)")
+                  fi
+                done
+                
                 echo -e "${CYAN}📋 Select client:${RESET}"
-                clients+=("Back to previous menu")
-                select selected_client in "${clients[@]}"; do
-                  if [[ "$selected_client" == "Back to previous menu" ]]; then
-                    break 2
-                  elif [ -n "$selected_client" ]; then
+                display_names+=("Back to previous menu")
+                                  select selected_display in "${display_names[@]}"; do
+                    if [[ "$selected_display" == "Back to previous menu" ]]; then
+                      break 2
+                    elif [ -n "$selected_display" ]; then
+                      # Get the actual client identifier based on selection
+                      selected_index=$((REPLY - 1))
+                      selected_client="${client_identifiers[$selected_index]}"
                     while true; do
                       echo ""
                       echo -e "${GREEN}🔄 Hot-reload options for '$selected_client':${RESET}"
@@ -1609,9 +1642,9 @@ while true; do
                 draw_line "$CYAN" "=" 50
                 echo ""
                 
-                mapfile -t clients < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep -v 'frp-server-' | awk '{print $1}' | sed 's/.service$//' | sed 's/frp-client-//')
+                mapfile -t client_services < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep -v 'frp-server-' | awk '{print $1}' | sed 's/.service$//')
                 
-                if [ ${#clients[@]} -eq 0 ]; then
+                if [ ${#client_services[@]} -eq 0 ]; then
                   echo -e "${RED}❌ No clients found.${RESET}"
                   echo ""
                   echo -e "${YELLOW}Press Enter to return...${RESET}"
@@ -1619,14 +1652,37 @@ while true; do
                   continue
                 fi
                 
+                # Create display names for clients
+                declare -a display_names=()
+                declare -a client_identifiers=()
+                
+                for service in "${client_services[@]}"; do
+                  client_id=$(echo "$service" | sed 's/frp-client-//')
+                  client_identifiers+=("$client_id")
+                  
+                  # Check if it's new format or old format
+                  if echo "$client_id" | grep -q ".*-.*-.*-[0-9]*$"; then
+                    # New format: convert to readable server address
+                    readable=$(echo "$client_id" | sed 's/-/:/2' | sed 's/-/./g' | sed 's/:/-/' | sed 's/-/:/')
+                    display_names+=("$readable (Server)")
+                  else
+                    # Old format: show as is
+                    display_names+=("$client_id (Custom)")
+                  fi
+                done
+                
                 echo -e "${CYAN}📋 Select client:${RESET}"
-                clients+=("Back to previous menu")
-                select selected_client in "${clients[@]}"; do
-                  if [[ "$selected_client" == "Back to previous menu" ]]; then
-                    break 2
-                  elif [ -n "$selected_client" ]; then
-                    # Get current protocol
-                    config_file="/root/rstun/frpc_${selected_client}.toml"
+                display_names+=("Back to previous menu")
+                                  select selected_display in "${display_names[@]}"; do
+                    if [[ "$selected_display" == "Back to previous menu" ]]; then
+                      break 2
+                    elif [ -n "$selected_display" ]; then
+                      # Get the actual client identifier based on selection
+                      selected_index=$((REPLY - 1))
+                      selected_client="${client_identifiers[$selected_index]}"
+                      
+                      # Get current protocol
+                      config_file="/root/rstun/frpc_${selected_client}.toml"
                     
                     # Check if config file exists
                     if [ ! -f "$config_file" ]; then
