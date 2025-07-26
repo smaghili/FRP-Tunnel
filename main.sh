@@ -321,6 +321,7 @@ get_protocol_selection() {
     echo -e "  ${WHITE}2)${RESET} ${YELLOW}QUIC${RESET} - Fast, modern (UDP-based)"
     echo -e "  ${WHITE}3)${RESET} ${BLUE}KCP${RESET} - Low latency (UDP-based)"
     echo -e "  ${WHITE}4)${RESET} ${MAGENTA}WebSocket${RESET} - Firewall-friendly"
+    echo -e "  ${WHITE}5)${RESET} ${CYAN}WSS${RESET} - Secure WebSocket (HTTPS)"
 }
 
 # Function to validate protocol support
@@ -328,7 +329,7 @@ validate_protocol() {
     local protocol="$1"
     
     case "$protocol" in
-        "tcp"|"quic"|"kcp"|"websocket")
+        "tcp"|"quic"|"kcp"|"websocket"|"wss")
             return 0
             ;;
         *)
@@ -669,11 +670,9 @@ install_frp_action() {
   draw_line "$CYAN" "=" 40
   echo ""
 
-  # Delete existing rstun folder if it exists
-  if [ -d "rstun" ]; then
-    echo -e "${YELLOW}🧹 Removing existing 'rstun' folder...${RESET}"
-    rm -rf rstun
-    print_success "Existing 'rstun' folder removed."
+  # Create rstun directory if it doesn't exist
+  if [ ! -d "rstun" ]; then
+    mkdir -p rstun
   fi
 
   echo -e "${CYAN}🚀 Detecting system architecture...${RESET}"
@@ -1013,7 +1012,7 @@ add_frp_client_action() {
   echo -e "${CYAN}🌐 Protocol Selection:${RESET}"
   get_protocol_selection
   echo ""
-  echo -e "👉 ${WHITE}Your choice (1-4, default: 1):${RESET} "
+  echo -e "👉 ${WHITE}Your choice (1-5, default: 1):${RESET} "
   read -p "" protocol_choice
 
   local selected_protocol=""
@@ -1032,6 +1031,9 @@ add_frp_client_action() {
       ;;
     4)
       selected_protocol="websocket"
+      ;;
+    5)
+      selected_protocol="wss"
       ;;
     *)
       print_error "Invalid choice. Using TCP as default."
@@ -1702,7 +1704,7 @@ while true; do
                     echo ""
                     get_protocol_selection
                     echo ""
-                    echo -e "👉 ${WHITE}Enter your choice (1-4, default: 1):${RESET} "
+                    echo -e "👉 ${WHITE}Enter your choice (1-5, default: 1):${RESET} "
                     read -p "" user_protocol_choice
                     
                     case "${user_protocol_choice:-1}" in
@@ -1717,6 +1719,9 @@ while true; do
                         ;;
                       4)
                         new_protocol="websocket"
+                        ;;
+                      5)
+                        new_protocol="wss"
                         ;;
                       *)
                         print_error "Invalid choice. Using TCP as default."
