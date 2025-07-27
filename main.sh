@@ -725,7 +725,13 @@ install_frp_action() {
 
   echo -e "${CYAN}📦 Extracting files...${RESET}"
   if tar -xzf "$filename"; then
-    mv "${filename%.tar.gz}" rstun # Rename extracted folder to 'rstun' for compatibility
+    # If rstun folder exists, copy files into it
+    if [ -d "rstun" ]; then
+      cp -r "${filename%.tar.gz}"/* rstun/
+      rm -rf "${filename%.tar.gz}"
+    else
+      mv "${filename%.tar.gz}" rstun
+    fi
     print_success "Extraction complete!"
   else
     echo -e "${RED}❌ Error: Failed to extract $filename. Corrupted download?${RESET}"
