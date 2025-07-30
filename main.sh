@@ -1396,7 +1396,7 @@ while true; do
                 echo ""
 
             echo -e "${CYAN}🔍 Searching for all FRP clients (including old naming format)...${RESET}"
-                mapfile -t services < <(systemctl list-units --type=service --all | grep 'frp-client-' | awk '{print $1}' | sed 's/.service$//')
+                mapfile -t services < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep '\.service' | awk '{print $1}' | sed 's/.service$//')
 
                 if [ ${#services[@]} -eq 0 ]; then
               echo -e "${RED}❌ No clients found.${RESET}"
@@ -1433,7 +1433,7 @@ while true; do
                 echo ""
 
             echo -e "${CYAN}🔍 Searching for all FRP clients (including old naming format)...${RESET}"
-                mapfile -t services < <(systemctl list-units --type=service --all | grep 'frp-client-' | awk '{print $1}' | sed 's/.service$//')
+                mapfile -t services < <(systemctl list-units --type=service --all | grep 'frp-client-' | grep '\.service' | awk '{print $1}' | sed 's/.service$//')
 
                 if [ ${#services[@]} -eq 0 ]; then
               echo -e "${RED}❌ No clients found.${RESET}"
