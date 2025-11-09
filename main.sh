@@ -11,15 +11,23 @@ WHITE='\033[0;37m'
 RESET='\033[0m' # No Color
 BOLD_GREEN='\033[1;32m' # Bold Green for menu title
 
-# Detect script path
-if [[ "${BASH_SOURCE[0]}" =~ ^/dev/fd/ ]] || [[ "${BASH_SOURCE[0]}" =~ ^/proc/ ]]; then
-    FRP_SCRIPT_PATH="$(pwd)/main.sh"
-else
-    FRP_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
-fi
-SCRIPT_DIR="$(dirname "$FRP_SCRIPT_PATH")"
-SETUP_MARKER_FILE="/var/lib/frp/.setup_complete"
+# Installation paths (fixed)
+INSTALL_DIR="/opt/frp-tunnel"
 FRP_COMMAND_PATH="/usr/local/bin/frp"
+SETUP_MARKER_FILE="/var/lib/frp/.setup_complete"
+
+# Detect if running from curl or from file
+if [[ "${BASH_SOURCE[0]}" =~ ^/dev/fd/ ]] || [[ "${BASH_SOURCE[0]}" =~ ^/proc/ ]]; then
+    # Running from curl - script will be installed to INSTALL_DIR
+    FRP_SCRIPT_PATH="$INSTALL_DIR/main.sh"
+    SCRIPT_DIR="$INSTALL_DIR"
+    FROM_CURL=true
+else
+    # Running from file - use actual file path
+    FRP_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
+    SCRIPT_DIR="$(dirname "$FRP_SCRIPT_PATH")"
+    FROM_CURL=false
+fi
 
 # --- Basic Functions ---
 
@@ -458,28 +466,30 @@ validate_host() {
 
 # --- Function to ensure 'frp' command symlink exists ---
 ensure_frp_command_available() {
-  echo -e "${CYAN}Checking 'frp' command symlink status...${RESET}"
+  echo -e "${CYAN}Setting up 'frp' command...${RESET}"
   
-  if [ ! -f "$FRP_SCRIPT_PATH" ]; then
-    echo -e "${YELLOW}⚠️ Script file not found at: $FRP_SCRIPT_PATH${RESET}"
-    echo -e "${YELLOW}This is normal when running from curl. Skipping symlink creation.${RESET}"
-    return 0
+  # If running from curl and script doesn't exist, download it
+  if [ "$FROM_CURL" = true ] && [ ! -f "$FRP_SCRIPT_PATH" ]; then
+    echo -e "${CYAN}Downloading script to $FRP_SCRIPT_PATH...${RESET}"
+    sudo mkdir -p "$INSTALL_DIR"
+    if sudo curl -fsSL https://raw.githubusercontent.com/smaghili/FRP-Tunnel/main/main.sh -o "$FRP_SCRIPT_PATH"; then
+      sudo chmod +x "$FRP_SCRIPT_PATH"
+      print_success "Script installed successfully."
+    else
+      echo -e "${YELLOW}⚠️ Could not download script. Skipping symlink creation.${RESET}"
+      return 0
+    fi
   fi
   
-  local current_symlink_target=$(readlink "$FRP_COMMAND_PATH" 2>/dev/null)
+  # Create symlink if script exists
+  if [ -f "$FRP_SCRIPT_PATH" ]; then
+    sudo mkdir -p "$(dirname "$FRP_COMMAND_PATH")" 2>/dev/null
+    if sudo ln -sf "$FRP_SCRIPT_PATH" "$FRP_COMMAND_PATH" 2>/dev/null; then
+      print_success "'frp' command is ready. You can run it anytime by typing: frp"
+    fi
+  fi
   
-  if [[ "$current_symlink_target" == /dev/fd/* ]] || [[ "$current_symlink_target" == /proc/* ]]; then
-    echo -e "${YELLOW}⚠️ Warning: Symlink points to temporary location. Fixing...${RESET}"
-  fi
-
-  sudo mkdir -p "$(dirname "$FRP_COMMAND_PATH")"
-  if sudo ln -sf "$FRP_SCRIPT_PATH" "$FRP_COMMAND_PATH"; then
-    print_success "'frp' command symlink is correctly set up."
-    return 0
-  else
-    echo -e "${YELLOW}⚠️ Failed to create symlink. This is OK when running from curl.${RESET}"
-    return 0
-  fi
+  return 0
 }
 
 # --- New: delete_cron_job_action to remove scheduled restarts ---
