@@ -461,14 +461,15 @@ ensure_frp_command_available() {
   echo -e "${CYAN}Checking 'frp' command symlink status...${RESET}"
   
   if [ ! -f "$FRP_SCRIPT_PATH" ]; then
-    print_error "❌ Script file not found at: $FRP_SCRIPT_PATH"
-    return 1
+    echo -e "${YELLOW}⚠️ Script file not found at: $FRP_SCRIPT_PATH${RESET}"
+    echo -e "${YELLOW}This is normal when running from curl. Skipping symlink creation.${RESET}"
+    return 0
   fi
   
   local current_symlink_target=$(readlink "$FRP_COMMAND_PATH" 2>/dev/null)
   
   if [[ "$current_symlink_target" == /dev/fd/* ]] || [[ "$current_symlink_target" == /proc/* ]]; then
-    print_error "❌ Warning: Symlink points to temporary location. Fixing..."
+    echo -e "${YELLOW}⚠️ Warning: Symlink points to temporary location. Fixing...${RESET}"
   fi
 
   sudo mkdir -p "$(dirname "$FRP_COMMAND_PATH")"
@@ -476,8 +477,8 @@ ensure_frp_command_available() {
     print_success "'frp' command symlink is correctly set up."
     return 0
   else
-    print_error "❌ Failed to create symlink."
-    return 1
+    echo -e "${YELLOW}⚠️ Failed to create symlink. This is OK when running from curl.${RESET}"
+    return 0
   fi
 }
 
@@ -1180,25 +1181,26 @@ perform_initial_setup() {
   sudo apt update
   sudo apt install -y build-essential curl pkg-config libssl-dev git figlet cron
 
-  # Ensure 'frp' command symlink is created/updated after initial setup
-  if ensure_frp_command_available; then # Call the function and check its return status
-      sudo mkdir -p "$(dirname "$SETUP_MARKER_FILE")" # Ensure directory exists for marker file
-      sudo touch "$SETUP_MARKER_FILE" # Create marker file only if all initial setup steps (including symlink) succeed
-    print_success "Initial setup complete and 'frp' command is ready."
-      return 0
-    else
-    print_error "Failed to set up 'frp' command symlink during initial setup. Please fix manually as instructed above."
-      return 1 # Propagate failure
-  fi
+  # Try to set up 'frp' command symlink
+  ensure_frp_command_available
+  
+  # Mark setup as complete
+  sudo mkdir -p "$(dirname "$SETUP_MARKER_FILE")"
+  sudo touch "$SETUP_MARKER_FILE"
+  
+  print_success "Initial setup complete!"
   echo ""
   return 0
 }
 
 # --- Main Script Execution ---
-set -e # Exit immediately if a command exits with a non-zero status
 
 # Perform initial setup (will run only once)
-perform_initial_setup || { echo "Initial setup failed. Exiting."; exit 1; }
+if ! perform_initial_setup; then
+  echo -e "${RED}Initial setup failed. Some features may not work correctly.${RESET}"
+  echo -e "${YELLOW}Continuing anyway...${RESET}"
+  sleep 2
+fi
 
 # Show initialization splash screen
 echo -e "${CYAN}🚀 FRP Tunnel Manager${RESET}"
