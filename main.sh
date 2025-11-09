@@ -1205,6 +1205,11 @@ perform_initial_setup() {
 
 # --- Main Script Execution ---
 
+# Reopen stdin from terminal if running from pipe
+if [ ! -t 0 ]; then
+  exec < /dev/tty
+fi
+
 # Perform initial setup (will run only once)
 if ! perform_initial_setup; then
   echo -e "${RED}Initial setup failed. Some features may not work correctly.${RESET}"
