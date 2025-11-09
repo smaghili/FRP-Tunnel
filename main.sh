@@ -1207,7 +1207,9 @@ perform_initial_setup() {
 
 # Reopen stdin from terminal if running from pipe
 if [ ! -t 0 ]; then
-  exec < /dev/tty
+  if [ -c /dev/tty ]; then
+    exec < /dev/tty
+  fi
 fi
 
 # Perform initial setup (will run only once)
