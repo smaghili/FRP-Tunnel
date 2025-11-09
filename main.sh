@@ -11,11 +11,11 @@ WHITE='\033[0;37m'
 RESET='\033[0m' # No Color
 BOLD_GREEN='\033[1;32m' # Bold Green for menu title
 
-
+# Detect script path
 if [[ "${BASH_SOURCE[0]}" =~ ^/dev/fd/ ]] || [[ "${BASH_SOURCE[0]}" =~ ^/proc/ ]]; then
     FRP_SCRIPT_PATH="$(pwd)/main.sh"
 else
-    FRP_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
+    FRP_SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}" 2>/dev/null || realpath "${BASH_SOURCE[0]}" 2>/dev/null || echo "${BASH_SOURCE[0]}")"
 fi
 SCRIPT_DIR="$(dirname "$FRP_SCRIPT_PATH")"
 SETUP_MARKER_FILE="/var/lib/frp/.setup_complete"
@@ -459,19 +459,24 @@ validate_host() {
 # --- Function to ensure 'frp' command symlink exists ---
 ensure_frp_command_available() {
   echo -e "${CYAN}Checking 'frp' command symlink status...${RESET}"
+  
+  if [ ! -f "$FRP_SCRIPT_PATH" ]; then
+    print_error "❌ Script file not found at: $FRP_SCRIPT_PATH"
+    return 1
+  fi
+  
   local current_symlink_target=$(readlink "$FRP_COMMAND_PATH" 2>/dev/null)
   
-  if [[ "$current_symlink_target" == /dev/fd/* ]]; then
-    print_error "❌ Warning: The existing 'frp' symlink points to a temporary location ($current_symlink_target)."
-    print_error "   Attempting to fix it by recreating the symlink to the permanent script path."
+  if [[ "$current_symlink_target" == /dev/fd/* ]] || [[ "$current_symlink_target" == /proc/* ]]; then
+    print_error "❌ Warning: Symlink points to temporary location. Fixing..."
   fi
 
-  mkdir -p "$(dirname "$FRP_COMMAND_PATH")"
-  if ln -sf "$FRP_SCRIPT_PATH" "$FRP_COMMAND_PATH" && [ -L "$FRP_COMMAND_PATH" ] && [ "$(readlink "$FRP_COMMAND_PATH" 2>/dev/null)" = "$FRP_SCRIPT_PATH" ]; then
+  sudo mkdir -p "$(dirname "$FRP_COMMAND_PATH")"
+  if sudo ln -sf "$FRP_SCRIPT_PATH" "$FRP_COMMAND_PATH"; then
     print_success "'frp' command symlink is correctly set up."
     return 0
   else
-    print_error "❌ Critical Error: The 'frp' command symlink is not properly set up or accessible."
+    print_error "❌ Failed to create symlink."
     return 1
   fi
 }
