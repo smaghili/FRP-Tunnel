@@ -1205,11 +1205,9 @@ perform_initial_setup() {
 
 # --- Main Script Execution ---
 
-# Reopen stdin from terminal if running from pipe
-if [ ! -t 0 ]; then
-  if [ -c /dev/tty ]; then
-    exec < /dev/tty
-  fi
+# Fix stdin when running from process substitution
+if [[ "${BASH_SOURCE[0]}" =~ ^/dev/fd/ ]] || [[ "${BASH_SOURCE[0]}" =~ ^/proc/ ]]; then
+  exec < /dev/tty 2>/dev/null || true
 fi
 
 # Perform initial setup (will run only once)
